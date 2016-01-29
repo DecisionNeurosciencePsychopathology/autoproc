@@ -34,7 +34,7 @@ epiTE=30  # ms
 
 GRAPPAAccel=1  # set to 1 if not an accelerated sequence
 
-echoSpacing=0.7 # ms
+echoSpacing=0.7 # ms 10-28-15 not really sure about this one though
 
 ######################################################################
 ### TEs of gre fieldmap magnitude images -- used to convert fieldmap to rad/s

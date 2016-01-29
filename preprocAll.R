@@ -174,6 +174,11 @@ for (d in subj_dirs) {
         outdir <- file.path(loc_mrproc_root, subid, preprocessed_dirname) #e.g., /Volumes/Serena/MMClock/MR_Proc/10637/native_nosmooth
     }
 
+
+    cat("This is the outdir", outdir,"\n\n")
+
+
+
     #determine directories for fieldmap if using
     apply_fieldmap <- FALSE
     fmdirs <- NULL
@@ -185,6 +190,13 @@ for (d in subj_dirs) {
 	
 	#fmdirs <- system(paste0("find $PWD -iname \"",gre_fieldmap_dirpattern, "\" -type d"), intern=TRUE)
 	#cat("FMDIRS len:",length(fmdirs))
+  
+  #12/29/15 NOTE: Because of the new cmrr software update in the scanner the fieldmapping dir names changes. It appears on trio
+  #2 where the update took place all fieldmaps are now of the flavor gre_field_mapping_64x64.6, before they were the flavor of
+  #fieldmap_FOV256_64x64.8, so with that we either need to change the regex to something more generic in the cfg file, or
+  #We need to make this script accept an additonal scanner perameter in which some regex lines will be scanner specific. I
+  #Believe the former would be the better solution, however this will probably situation will most likely change yet again
+  #when PRISMA is installed in the spring of 2016...
 	
 	   #Should determine how many fieldmap dires there are an act accordingly or set the number that should be here in the cfg file...
         if (length(fmdirs) == 2L) {
@@ -194,7 +206,7 @@ for (d in subj_dirs) {
             phasedir <- file.path(fmdirs[2], "MR*")
         }else if (length(fmdirs) == 0L){ 
 		  cat("  Probably just a structual scan, but check... \n")
-		  sink(".skipped") #for now add this so we can use find cmd to get skipped Ids
+		  #sink(".skipped") #for now add this so we can use find cmd to get skipped Ids
 		  next
 		  } else if (length(fmdirs) == 1L){ 
             cat("currently there is only one fieldmap for this task!!!\n")
@@ -231,6 +243,7 @@ for (d in subj_dirs) {
 	#cat("REGEX:",MR_regex) #DEBUG
     #identify original reconstructed flies for this subject
     mbraw_dirs <- list.dirs(path=MB_src, recursive = FALSE, full.names=FALSE) #all original recon directories, leave off full names for grep
+
 
     cat("These are the mb raw dirs", mbraw_dirs, "\n\n")
     cat("subid", subid, "\n\n")
