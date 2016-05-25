@@ -8,8 +8,6 @@
 #So until I talk with Michael about how to import the .cfg file I'm just going to fix up this guy
 args <- commandArgs(trailingOnly = TRUE)
 
-#TODO: Accept config file as input, source (in empty env?) and then use Sys.setenv to get things running below.
-
 goto=Sys.getenv("loc_mrraw_root")
 if (! file.exists(goto)) { stop("Cannot find directory: ", goto) }
 setwd(goto)
@@ -21,13 +19,7 @@ if (length(args) > 0L) {
     njobs <- 8
 }
 
-## if (length(args) > 2L) {
-##     MB_src <- args[3L] #folder containing MRRC reconstructed data
-## } else {
-##     MB_src <- normalizePath(Sys.glob("../WPC-*_MB")) #assume that MB data are up one directory in folder called WPC-XXXX_MB
-## }
-
-
+#Pull in libraries
 library(foreach)
 library(doMC)
 library(iterators)
@@ -39,18 +31,8 @@ preprocessed_dirname=Sys.getenv("preprocessed_dirname")
 paradigm_name=Sys.getenv("paradigm_name")
 n_expected_funcruns=Sys.getenv("n_expected_funcruns")
 preproc_call=Sys.getenv("preproc_call")
-
 MB_src=Sys.getenv("loc_mb_root")
 
-#We might be able to delete this later...
-#if (paradigm_name!="clockrev") {
-#    MB_src=Sys.getenv("loc_mb_root")
-#} else {
-#    MB_src=Sys.getenv("loc_mrraw_root") #Overwrite MR_src for clock task in supplement
-#}
-
-#njobs <-8
-#cat("njobs:", njobs)
 
 #optional config settings
 loc_mrproc_root=Sys.getenv("loc_mrproc_root")
@@ -92,6 +74,11 @@ list.dirs <- function(...) {
     setwd(oldwd)
     return(dlist) #will be null if no matches
 }
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
 
 #find original mprage directories to rename
 #mprage_dirs <- list.dirs(pattern=mprage_dirpattern)
@@ -151,8 +138,8 @@ f <- foreach(d=mprage_dirs, .inorder=FALSE) %dopar% {
 #get list of subject directories in root directory
 subj_dirs <- list.dirs(path=basedir, recursive=FALSE)
 
-
-if(MB_src==""){   #This is the current work around to auto preprocess raw files
+#This is the current work around to auto preprocess raw files
+if(MB_src==""){   
     MB_src <- goto
 	MB_regex <- MR_regex
 	MB_go <- 0
@@ -165,93 +152,14 @@ for (d in subj_dirs) {
     cat("Processing subject: ", d, "\n")
     setwd(d)
 
+    #Grab subject id
     subid <- basename(d)
+    cat("\nsubid", subid, "\n\n")
 
-    #define root directory for subject's processed data
-    if (loc_mrproc_root == "") {
-        outdir <- file.path(d, preprocessed_dirname) #e.g., /Volumes/Serena/MMClock/MR_Raw/10637/MBclock_recon
-    } else {
-        outdir <- file.path(loc_mrproc_root, subid, preprocessed_dirname) #e.g., /Volumes/Serena/MMClock/MR_Proc/10637/native_nosmooth
-    }
-
-
-    cat("This is the outdir", outdir,"\n\n")
-
-
-
-    #determine directories for fieldmap if using
-    apply_fieldmap <- FALSE
-    fmdirs <- NULL
-    magdir <- phasedir <- NA_character_ #reduce risk of accidentally carrying over fieldmap from one subject to next in loop
-    if (gre_fieldmap_dirpattern != "" && fieldmap_cfg != "") {
-        ##determine phase versus magnitude directories for fieldmap
-        ##in runs so far, magnitude comes first. preprocessFunctional should handle properly if we screw this up...
-        fmdirs <- sort(normalizePath(Sys.glob(file.path(d, gre_fieldmap_dirpattern))))
-	
-	#fmdirs <- system(paste0("find $PWD -iname \"",gre_fieldmap_dirpattern, "\" -type d"), intern=TRUE)
-	#cat("FMDIRS len:",length(fmdirs))
-  
-  #12/29/15 NOTE: Because of the new cmrr software update in the scanner the fieldmapping dir names changes. It appears on trio
-  #2 where the update took place all fieldmaps are now of the flavor gre_field_mapping_64x64.6, before they were the flavor of
-  #fieldmap_FOV256_64x64.8, so with that we either need to change the regex to something more generic in the cfg file, or
-  #We need to make this script accept an additonal scanner perameter in which some regex lines will be scanner specific. I
-  #Believe the former would be the better solution, however this will probably situation will most likely change yet again
-  #when PRISMA is installed in the spring of 2016...
-	
-	   #Should determine how many fieldmap dires there are an act accordingly or set the number that should be here in the cfg file...
-        if (length(fmdirs) == 2L) {
-		
-            apply_fieldmap <- TRUE
-            magdir <- file.path(fmdirs[1], "MR*")
-            phasedir <- file.path(fmdirs[2], "MR*")
-        }else if (length(fmdirs) == 0L){ 
-		  cat("  Probably just a structual scan, but check... \n")
-		  #sink(".skipped") #for now add this so we can use find cmd to get skipped Ids
-		  next
-		  } else if (length(fmdirs) == 1L){ 
-            cat("currently there is only one fieldmap for this task!!!\n")
-          } else {
-		   		stop("Number of fieldmap dirs is not 2: ", paste0(fmdirs, collapse=", ")) 
-		    	 }
-    }
-    
-
-    mpragedir <- file.path(d, "mprage")
-    if (file.exists(mpragedir)) {
-        if (! (file.exists(file.path(mpragedir, "mprage_warpcoef.nii.gz")) && file.exists(file.path(mpragedir, "mprage_bet.nii.gz")) ) ) {
-            stop("Unable to locate required mprage files in dir: ", mpragedir)
-        }
-    } else {
-        stop ("Unable to locate mprage directory: ", mpragedir)
-    }
-    
-    ##create paradigm_run1-paradigm_run8 folder structure and copy raw data
-    if (!file.exists(outdir)) { #create preprocessed folder if absent
-        dir.create(outdir, showWarnings=FALSE, recursive=TRUE)
-    } else {
-        ##preprocessed folder exists, check for .preprocessfunctional_complete files
-        extant_funcrundirs <- list.dirs(path=outdir, pattern=paste0(paradigm_name,"[0-9]+"), full.names=TRUE, recursive=FALSE)
-        if (length(extant_funcrundirs) > 0L &&
-            length(extant_funcrundirs) >= n_expected_funcruns &&
-            all(sapply(extant_funcrundirs, function(x) { file.exists(file.path(x, ".preprocessfunctional_complete")) }))) {
-            cat("   preprocessing already complete for all functional run directories\n\n")
-            next
-        }
-    }
-   
-	
-	#cat("REGEX:",MR_regex) #DEBUG
     #identify original reconstructed flies for this subject
     mbraw_dirs <- list.dirs(path=MB_src, recursive = FALSE, full.names=FALSE) #all original recon directories, leave off full names for grep
 
-
-    cat("These are the mb raw dirs", mbraw_dirs, "\n\n")
-    cat("subid", subid, "\n\n")
-
-    #approximate grep is leading to problems with near matches!!
-    #example: 11263_20140307; WPC5640_11253_20140308
-    #srcmatch <- agrep(subid, mbraw_dirs, max.distance = 0.1, ignore.case = TRUE)[1L] #approximate id match in MRRC directory
-
+    #Make sure to match id with the raw directory, if not skip it
     srcmatch <- grep(subid, mbraw_dirs, ignore.case = TRUE)[1L] #id match in MRRC directory
     
     if (is.na(srcmatch)) {
@@ -262,25 +170,13 @@ for (d in subj_dirs) {
     srcdir <- file.path(MB_src, mbraw_dirs[srcmatch])
     cat("Matched with src directory: ", srcdir, "\n")
     mbfiles <- list.files(path=srcdir, pattern=MB_regex, full.names = TRUE) #images to copy, currently only bandit supporting
-
-    cat("Here is the file to process regex: ", MB_regex,"\n")
-    cat("Here is the MB src dir: ", MB_src,"\n")
-
-
-    cat("Here are the mbfiles:",mbfiles) #DEBUG
-
+    
     ##figure out run numbers based on file names
-    ##there is some variability in how files are named.
-    ## v1: ep2d_MB_clock1_MB.hdr
-    ## v2: ep2d_MB_clock1_8_MB.hdr (ambiguous!)
-    ## v3: ep2d_MB_clock_1_MB.hdr
-    ## occasionally "Eclock"?
-
     runnums <- sub(MB_regex, "\\1", mbfiles, perl=TRUE, ignore.case = TRUE) #So far this is just bandit specific
     cat("\n\nrunnums:",runnums, "\n") #DEBUG <- this should be 1, 2, 3 4, ect
-    
     run_split <- strsplit(runnums, "\\s+", perl=TRUE)
     run_lens <- sapply(run_split, length)
+
 
     if (any(run_lens > 1L)) {
         #at least one file name contains two potential run numbers
@@ -308,7 +204,93 @@ for (d in subj_dirs) {
 
     cat("Detected run numbers, MB Files:\n")
     print(cbind(runnum=runnums, mbfile=mbfiles))
-   
+
+    #Grab n_expected_funcruns directly from the directories, not the exertnal cfg file
+    if (length(runnums)>=1){
+        n_expected_funcruns <- length(runnums)
+    }
+
+    #If run length is not more than 1 kick out, maybe write to a log file here?
+    #Not kicking out was causeing bandit_MB_proc/bandit and banditNA dirs to pop up, which was lame.
+    if (n_expected_funcruns<1){
+        cat(" Subject",subid, "does not have more than 1 run of data\n\n") 
+        next
+    }
+
+    
+    #define root directory for subject's processed data
+    if (loc_mrproc_root == "") {
+        outdir <- file.path(d, preprocessed_dirname) #e.g., /Volumes/Serena/MMClock/MR_Raw/10637/MBclock_recon
+    } else {
+        outdir <- file.path(loc_mrproc_root, subid, preprocessed_dirname) #e.g., /Volumes/Serena/MMClock/MR_Proc/10637/native_nosmooth
+    }
+
+    #determine directories for fieldmap if using
+    apply_fieldmap <- FALSE
+    fmdirs <- NULL
+    magdir <- phasedir <- NA_character_ #reduce risk of accidentally carrying over fieldmap from one subject to next in loop
+    if (gre_fieldmap_dirpattern != "" && fieldmap_cfg != "") {
+        ##determine phase versus magnitude directories for fieldmap
+        ##in runs so far, magnitude comes first. preprocessFunctional should handle properly if we screw this up...
+        fmdirs <- sort(normalizePath(Sys.glob(file.path(d, gre_fieldmap_dirpattern))))
+	
+	#fmdirs <- system(paste0("find $PWD -iname \"",gre_fieldmap_dirpattern, "\" -type d"), intern=TRUE)
+	#cat("FMDIRS len:",length(fmdirs))
+  
+
+    ##kick out before looking at fieldmaps, if you're done, you're done.
+    ##create paradigm_run1-paradigm_run8 folder structure and copy raw data
+    if (!file.exists(outdir)) { #create preprocessed folder if absent
+        dir.create(outdir, showWarnings=FALSE, recursive=TRUE)
+    } else {
+        ##preprocessed folder exists, check for .preprocessfunctional_complete files
+        extant_funcrundirs <- list.dirs(path=outdir, pattern=paste0(paradigm_name,"[0-9]+"), full.names=TRUE, recursive=FALSE)
+        cat("extant_funcrundirs...", extant_funcrundirs,"\n\n")
+        if (length(extant_funcrundirs) > 0L &&
+            length(extant_funcrundirs) >= n_expected_funcruns &&
+            all(sapply(extant_funcrundirs, function(x) { file.exists(file.path(x, ".preprocessfunctional_complete")) }))) {
+            cat("   preprocessing already complete for all functional run directories\n\n")
+            next
+        }
+    }
+
+
+    cat("Processed data will be written to...", outdir,"\n\n")
+
+  #12/29/15 NOTE: Because of the new cmrr software update in the scanner the fieldmapping dir names changes. It appears on trio
+  #2 where the update took place all fieldmaps are now of the flavor gre_field_mapping_64x64.6, before they were the flavor of
+  #fieldmap_FOV256_64x64.8, so with that we either need to change the regex to something more generic in the cfg file, or
+  #We need to make this script accept an additonal scanner perameter in which some regex lines will be scanner specific. I
+  #Believe the former would be the better solution, however this will probably situation will most likely change yet again
+  #when PRISMA is installed in the spring of 2016...
+	
+	   #Should determine how many fieldmap dires there are an act accordingly or set the number that should be here in the cfg file...
+        if (length(fmdirs) == 2L) {
+		
+            apply_fieldmap <- TRUE
+            magdir <- file.path(fmdirs[1], "MR*")
+            phasedir <- file.path(fmdirs[2], "MR*")
+        }else if (length(fmdirs) == 0L){ 
+		  cat("  Probably just a structual scan, but check... \n")
+		  #sink(".skipped") #for now add this so we can use find cmd to get skipped Ids
+		  next
+		} else if (length(fmdirs) == 1L){ 
+            cat("currently there is only one fieldmap for this task!!!\n")
+          } else {
+		   		stop("Number of fieldmap dirs is not 2: ", paste0(fmdirs, collapse=", ")) 
+		    	 }
+    }
+    
+
+    mpragedir <- file.path(d, "mprage")
+    if (file.exists(mpragedir)) {
+        if (! (file.exists(file.path(mpragedir, "mprage_warpcoef.nii.gz")) && file.exists(file.path(mpragedir, "mprage_bet.nii.gz")) ) ) {
+            stop("Unable to locate required mprage files in dir: ", mpragedir)
+        }
+    } else {
+        stop ("Unable to locate mprage directory: ", mpragedir)
+    }
+    
    
     #loop over files and setup run directories in preprocessed_dirname
     for (m in 1:length(mbfiles)) {
@@ -345,19 +327,19 @@ f <- foreach(cd=iter(all_funcrun_dirs, by="row"), .inorder=FALSE) %dopar% {
     #fourD_file <- system("find $PWD -iname \"*.nii.gz\" -type f") #Added qoutes see if that works, need intern=TRUE...
     #cat("4D!:", fourD_file,"\n\n")
     
-    
-    
-    
-    
-    if (paradigm_name=="bandit"){
+       
+    ##So this grepl returns true or false against the old pre MN/PRISMA MB_regex string, basically if it is a
+    ##Bandit task but not an old one use "-dicom" for the funcpart of the .preproc_cmd
+    if ((paradigm_name=="bandit")&(grepl("_MB.hdr$", MB_regex) ) ){
     funcpart <- paste("-4d", Sys.glob(paste0(paradigm_name, "*.nii.gz"))) #another work around idea
     num_block <- stri_sub(funcpart,-8,-8) #This grabs the run number..hopefully
     tmp_id <- sub(".*?([0-9]+).*", "\\1", getwd(), perl=TRUE) #Grab id
     tmp_path <- system(paste0("find ", MB_src, " -ipath \"*", tmp_id, "\" -type d"), intern=TRUE)
-    cat(tmp_path)
+    cat("tmp path:",tmp_path,"\n\n")
     	if (tmp_path!=0) {
-    		refimagepart <- paste("-func_refimg", system(paste0("find -L ", tmp_path, " -iname \"*",num_block,"_twix*ref.hdr\" | head -1"), intern=TRUE))
-    	} else {
+    		refimagepart <- paste("-func_refimg", system(paste0("find -L ", tmp_path, " -iname \"*",num_block,"*_ref.hdr\" | head -1"), intern=TRUE))
+    	    cat("refimagepart",refimagepart,"\n\n")
+        } else {
 		refimagepart<-""
 	}
     
@@ -384,7 +366,7 @@ f <- foreach(cd=iter(all_funcrun_dirs, by="row"), .inorder=FALSE) %dopar% {
     args <- paste(funcpart, mpragepart, fmpart, preproc_call, refimagepart)
     
     cat("ARRRGS!:", args,"\n\n")
-    cat("Where are my khakis?\n")
+    cat("Where are my khakis?\n") #Ancient debugging phrase
     #stop("Debug")
     
     ret_code <- system2("preprocessFunctional", args, stderr="preprocessFunctional_stderr", stdout="preprocessFunctional_stdout")
