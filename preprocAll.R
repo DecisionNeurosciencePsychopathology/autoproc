@@ -294,15 +294,22 @@ for (d in subj_dirs) {
    
     #loop over files and setup run directories in preprocessed_dirname
     for (m in 1:length(mbfiles)) {
+        cat("MBfile: ", mbfiles[m],"\n\n")
         #only copy data if folder does not exist
         if (!file.exists(file.path(outdir, paste0(paradigm_name, runnums[m])))) {
             dir.create(file.path(outdir, paste0(paradigm_name, runnums[m])))
 	    #cat(paste0("cp -r \"", mbfiles[m], "\"", file.path("/*"), " \"", file.path(outdir, paste0(paradigm_name, runnums[m])),"\""))
-		
             if (MB_go !=0){
             ##use 3dcopy to copy dataset as .nii.gz
             system(paste0("3dcopy \"", mbfiles[m], "\" \"", file.path(outdir, paste0(paradigm_name, runnums[m]), paste0(paradigm_name, runnums[m])), ".nii.gz\""))
-	    } else {system(paste0("cp \"", mbfiles[m], "\"", file.path("/*"), " \"", file.path(outdir, paste0(paradigm_name, runnums[m])),"\""))} #This will copy all the raw MR files to the
+	    } else {
+            fls = list.files(mbfiles[m], full.names=TRUE)
+            file.copy(from = fls, to = file.path(outdir, paste0(paradigm_name, runnums[m])))
+
+            #cat("Copy command ", paste0("cp \"", mbfiles[m], "\"", file.path("/*"), " \"", file.path(outdir, paste0(paradigm_name, runnums[m])),"\""), "\n\n")
+            #system(paste0("cp \"", mbfiles[m], "\"", file.path("/*"), " \"", file.path(outdir, paste0(paradigm_name, runnums[m])),"\""))
+            #system(paste0("cp \"", mbfiles[m], file.path("/"), " \"", "\"" file.path(outdir, paste0(paradigm_name, runnums[m])),"\""))
+        } #This will copy all the raw MR files to the
 	    #The new proc folder (i.e. MR_Proc/mni..trust/trust1/...) 
         }
     }
@@ -337,7 +344,7 @@ f <- foreach(cd=iter(all_funcrun_dirs, by="row"), .inorder=FALSE) %dopar% {
     tmp_path <- system(paste0("find ", MB_src, " -ipath \"*", tmp_id, "\" -type d"), intern=TRUE)
     cat("tmp path:",tmp_path,"\n\n")
     	if (tmp_path!=0) {
-    		refimagepart <- paste("-func_refimg", system(paste0("find -L ", tmp_path, " -iname \"*",num_block,"*_ref.hdr\" | head -1"), intern=TRUE))
+    		refimagepart <- paste("-func_refimg", system(paste0("find -L ", tmp_path, " -iname \"*taskx",num_block,"*_ref.hdr\" | head -1"), intern=TRUE)) #This should grab the proper func ref image
     	    cat("refimagepart",refimagepart,"\n\n")
         } else {
 		refimagepart<-""
