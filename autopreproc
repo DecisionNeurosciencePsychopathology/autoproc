@@ -1,15 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env sh
 
 if [[ $# -eq 0 ]]; then
     echo "Expect one or more cfg files as input for preprocessing"
     exit 1
 fi
 
-#use EPD on skynet
-PATH=/Library/Frameworks/EPD64.framework/Versions/Current/bin:${PATH}
+env
 
 #Explicit MATLAB location
-PATH=/Applications/MATLAB_R2014b.app/bin:${PATH}
+PATH=/Applications/MATLAB_R2015b.app/bin:${PATH}
 
 # FSL Configuration
 FSLDIR=/usr/local/ni_tools/fsl
@@ -27,23 +26,43 @@ PATH=/usr/local/ni_tools/fmri_processing_scripts:${PATH}
 PATH=/usr/local/bin:${PATH}
 
 export FSLDIR PATH
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/X11/lib:/opt/ni_tools/afni
 
 function resetcfg {
     protocol=
-    meson_mr_root=
-    meson_mb_root=
+    remote_host=
+    remote_mrraw_root=
+    remote_mb_root=
+    remote_subid_regex=
+    remote_folder_filter=
+    remote_folder_depth=1
     loc_root=
     loc_mrraw_root=
     loc_mrproc_root=
     loc_mb_root=
-    meson_subid_regex=
+    sync_mb_data=0
+    sync_raw_data=0
+    postrsync_exec=
     mprage_dirpattern=
+    mprage_dicompattern=
     preprocessed_dirname=
     paradigm_name=
     n_expected_funcruns=
+    preproc_call=
     gre_fieldmap_dirpattern=
     fieldmap_cfg=
-    preproc_call=
+    se_phasepos_dirpattern=
+    se_phaseneg_dirpattern=
+    se_phasepos_dicompattern=
+    se_phaseneg_dicompattern=
+    proc_freesurfer=0
+    proc_functional=0
+    preproc_resume=0 #whether to prefer preprocessFunctional -resume
+    functional_dirpattern=
+    functional_dicompattern=
+    detect_refimg=0
+    use_job_array=0 #whether to use PBS job array
+    use_moab=0 #whether to use Moab to handle job arrays (instead of torque)
     mb_regex= #These were added to make preprocAll more generic
     mr_regex= #These were added to make preprocAll more generic
     task_name=
@@ -73,23 +92,32 @@ while [ _$1 != _ ] ; do
 	echo "Processing config file: $1"
 	echo ""
 
-	#1) rsync reconstructed multiband directory
-	echo "./syncMRCTR_Multiband \"${meson_mb_root}\" \"${loc_mb_root}\" \"${protocol}\""
-	./syncMRCTR_Multiband "${meson_mb_root}" "${loc_mb_root}" "${protocol}"
+	if [ ${sync_mb_data} -eq 1 ]; then
+	    #1) rsync reconstructed multiband directory
+	    echo "./syncMRCTR_Multiband \"${remote_mb_root}\" \"${loc_mb_root}\""
+	    ./syncMRCTR_Multiband "${remote_mb_root}" "${loc_mb_root}" "{protocol}"
 
-	if [ "$protocol" == "WPC-5640" ]; then
-	    #for 5640 (multimodal), multiband recon directory naming is slightly different from dicoms
-	    #generate symlinks that make them conformable so that preprocessAll.R can match MB recon with raw MR.
-	    ./link_ids.R "${loc_mb_root}"
+	    if [ "$protocol" == "WPC-5640" ]; then
+		#for 5640 (multimodal), multiband recon directory naming is slightly different from dicoms
+		#generate symlinks that make them conformable so that preprocessAll.R can match MB recon with raw MR.
+		./link_ids.R "${loc_mb_root}"
+	    fi
+	fi
+
+	if [ ${sync_raw_data} -eq 1 ]; then
+            #2) sync MR_Raw directory (Dicoms)
+	    echo "./syncMRCTR_MRRAW"
+	    ./syncMRCTR_MRRAW #reads necessary variables from environment
 	fi
 	
-	#2) sync MR_Raw directory (Dicoms)
-	echo "./syncMRCTR_MRRAW \"${meson_mr_root}\" \"${loc_mrraw_root}\" \"${meson_subid_regex}\" \"${protocol}\" \"${task_name}\""
-	./syncMRCTR_MRRAW "${meson_mr_root}" "${loc_mrraw_root}" "${meson_subid_regex}" "${protocol}" "${task_name}"
+	if [ "$protocol" == "WPC-7091" ] || [ "$protocol" == "WPC-7101" ]; then
+	    echo "Organizing new subject data directories..."
+	    python nfb_dir_organizer.py ${loc_root}
+	fi
 	
 
 	#3) preprocess all data in mr directory: R script relies on environment variables sourced above for configuration
-	echo "./preprocAll.R \"${loc_mrraw_root}\" $njobs \"${loc_mb_root}\""
+	echo "./preprocAll.R $njobs"
 	./preprocAll.R $njobs
 
 	echo "End config: $1"
