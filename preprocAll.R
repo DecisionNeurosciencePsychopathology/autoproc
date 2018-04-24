@@ -284,17 +284,31 @@ mprage_dirs <- unlist(lapply(mprage_dirs_byid, function(subject) {
 
 ##figure out which mprage scans need to be processed
 ##then process in parallel below
+
+
 mprage_toprocess <- c()
 for (d in mprage_dirs) {
   subid <- basename(dirname(d))
   outdir <- file.path(loc_mrproc_root, subid)
   #should probably just use short circuit || here instead of compound if elses
+  #####MODIFICATION:
+  if (file.exists(file.path(outdir,"mprage",".preprocessmprage_complete"))) {
+    filename.outdated<-file.path(outdir,"mprage",".preprocessmprage_complete")
+    ifoutdated<-as.character(readLines(filename.outdated))
+     if (as.Date(ifoutdated) < as.Date("2018-04-01")) {
+       message("Found earlier processed MPRAGE file, deleting and rerunning updated mprage pipeline")
+       message("This step might be obsolete in the future!")
+       file.remove(filename.outdated)
+     }
+  }
+  #########
+  
   if (!file.exists(outdir)) {
     ##create preprocessed folder if absent
     dir.create(outdir, showWarnings=FALSE, recursive=TRUE)
     mprage_toprocess <- c(mprage_toprocess, d)
   } else if (!file.exists(file.path(outdir, "mprage")) ||   #output directory exists, but mprage subdirectory does not
-               !file.exists(file.path(outdir, "mprage", ".preprocessmprage_complete"))) {   #mprage subdirectory exists, but complete file does not
+               !file.exists(file.path(outdir, "mprage", ".preprocessmprage_complete")))  {   #mprage subdirectory exists, but complete file does not
     mprage_toprocess <- c(mprage_toprocess, d)
   }
 }
@@ -471,6 +485,9 @@ for (d in subj_dirs) {
     ##determine phase versus magnitude directories for fieldmap
     ##in runs so far, magnitude comes first. preprocessFunctional should handle properly if we screw this up...
     fmdirs <- sort(normalizePath(Sys.glob(file.path(d, gre_fieldmap_dirpattern))))
+    
+    #TODO for bsocial overwrite the fmdirs as there will be over 2 since the tasks are split and counter-balanced 
+    
     if (length(fmdirs) == 2L) {
       apply_fieldmap <- TRUE
       magdir <- file.path(loc_mrproc_root, subid, "fieldmap_magnitude")
@@ -651,6 +668,7 @@ for (d in subj_dirs) {
       message("Skipping participant for now")
       next
     } else if (length(funcdirs) != n_expected_funcruns) {
+      cat("Look here:", functional_dirpattern,"\n")
       message("Cannot find the expected number of functional run directories in ", d, " for pattern ", functional_dirpattern)
       message("Skipping participant for now")
       next
